@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 from src.data_ingestion.base import BaseFetcher
 from src.data_ingestion.participant_oi import ParticipantOIFetcher
 from src.data_ingestion.bhavcopy import BhavcopyFetcher
+from src.data_ingestion.sentiment import SentimentFetcher
 
 @pytest.fixture
 def tmp_dirs(tmp_path):
@@ -26,7 +27,7 @@ def mock_oi_df():
     })
 
 @pytest.fixture
-def mock_bhavcopy_df():
+def mock_fno_bhavcopy_df():
     return pd.DataFrame({
         "INSTRUMENT": ["FUTIDX", "OPTIDX", "FUTSTK"],
         "SYMBOL": ["NIFTY", "NIFTY", "RELIANCE"],
@@ -39,6 +40,19 @@ def mock_bhavcopy_df():
         "CLOSE": [21550.0, 180.0, 2720.0],
         "OPEN_INT": [100000, 50000, 20000],
         "CHG_IN_OI": [5000, 2000, -500]
+    })
+
+@pytest.fixture
+def mock_equity_bhavcopy_df():
+    return pd.DataFrame({
+        "SYMBOL": ["RELIANCE", "TCS", "INFY"],
+        "SERIES": ["EQ", "EQ", "EQ"],
+        "OPEN_PRICE": [2700.0, 3800.0, 1500.0],
+        "HIGH_PRICE": [2750.0, 3850.0, 1520.0],
+        "LOW_PRICE": [2680.0, 3780.0, 1490.0],
+        "CLOSE_PRICE": [2720.0, 3820.0, 1510.0],
+        "TTL_TRD_QNTY": [5000000, 3000000, 4000000],
+        "TURNOVER_LACS": [136000.0, 114600.0, 60400.0]
     })
 
 def test_base_fetcher_idempotent_save(tmp_dirs, mock_oi_df):
@@ -63,22 +77,38 @@ def test_participant_oi_fetcher_caching(tmp_dirs, mock_oi_df):
     fetcher = ParticipantOIFetcher(raw_dir=raw_dir, processed_dir=processed_dir)
 
     with patch("nselib.derivatives.participant_wise_open_interest", return_value=mock_oi_df) as mock_nselib:
-        # First call - fetches from mock_nselib
         df1 = fetcher.fetch_for_date("2024-01-15")
         assert df1 is not None
         assert mock_nselib.call_count == 1
 
-        # Second call - should hit local cache, mock_nselib should NOT be called again
         df2 = fetcher.fetch_for_date("2024-01-15")
         assert df2 is not None
         assert mock_nselib.call_count == 1
 
-def test_bhavcopy_fetcher_filtering(tmp_dirs, mock_bhavcopy_df):
+def test_fno_bhavcopy_fetcher_filtering(tmp_dirs, mock_fno_bhavcopy_df):
     raw_dir, processed_dir = tmp_dirs
     fetcher = BhavcopyFetcher(raw_dir=raw_dir, processed_dir=processed_dir)
 
-    with patch("nselib.derivatives.fno_bhav_copy", return_value=mock_bhavcopy_df):
-        df_nifty = fetcher.fetch_for_date("2024-01-15", target_symbol="NIFTY")
+    with patch("nselib.derivatives.fno_bhav_copy", return_value=mock_fno_bhavcopy_df):
+        df_nifty = fetcher.fetch_fno_bhavcopy("2024-01-15", target_symbol="NIFTY")
         assert df_nifty is not None
         assert len(df_nifty) == 2
         assert set(df_nifty["SYMBOL"].unique()) == {"NIFTY"}
+
+def test_equity_bhavcopy_fetcher(tmp_dirs, mock_equity_bhavcopy_df):
+    raw_dir, processed_dir = tmp_dirs
+    fetcher = BhavcopyFetcher(raw_dir=raw_dir, processed_dir=processed_dir)
+
+    with patch("nselib.capital_market.bhav_copy_equities", return_value=mock_equity_bhavcopy_df):
+        df_eq = fetcher.fetch_equity_bhavcopy("2024-01-15", target_symbol="RELIANCE")
+        assert df_eq is not None
+        assert len(df_eq) == 1
+        assert df_eq["SYMBOL"].iloc[0] == "RELIANCE"
+
+def test_sentiment_fetcher(tmp_dirs):
+    raw_dir, processed_dir = tmp_dirs
+    fetcher = SentimentFetcher(raw_dir=raw_dir, processed_dir=processed_dir)
+
+    df_sentiment = fetcher.load_sentiment_dataset("indian-finbert")
+    assert df_sentiment is not None
+    assert "dataset_key" in df_sentiment.columns or df_sentiment.empty
