@@ -8,13 +8,13 @@ logger = logging.getLogger("state_machine.state_machine")
 
 class PointInTimeStateMachine:
     """
-    Applies strict Point-in-Time (PIT) expanding-window quantile thresholding and dynamic multivariate regime fitting.
+    Applies strict Point-in-Time (PIT) expanding-window quantile thresholding and dynamic regime fitting.
     Guarantees no look-ahead bias by re-evaluating regime bounds and transition probabilities strictly up to time t.
     """
 
-    def __init__(self, min_periods: int = 20, n_components: int = 3):
+    def __init__(self, min_periods: int = 20, n_states_per_feature: int = 2):
         self.min_periods = min_periods
-        self.n_components = n_components
+        self.n_states_per_feature = n_states_per_feature
 
     def compute_expanding_quantiles(self, df_features: pd.DataFrame, feature_cols: List[str], quantiles: List[float] = [0.33, 0.67]) -> pd.DataFrame:
         """
@@ -53,7 +53,7 @@ class PointInTimeStateMachine:
 
     def process_state_classification(self, df_features: pd.DataFrame, feature_cols: List[str]) -> Tuple[pd.DataFrame, np.ndarray]:
         """
-        Executes multivariate dynamic regime classification and computes PIT expanding thresholds and transition matrix.
+        Executes dynamic regime classification and computes PIT expanding thresholds and transition matrix.
         """
         if df_features is None or df_features.empty:
             logger.warning("Empty dataframe passed to State Machine.")
@@ -62,12 +62,13 @@ class PointInTimeStateMachine:
         # 1. Compute PIT expanding quantiles
         df_pit = self.compute_expanding_quantiles(df_features, feature_cols)
 
-        # 2. Fit Dynamic Multivariate Regime Classifier across features
-        classifier = DynamicRegimeClassifier(n_components=self.n_components)
-        df_states, aic, bic = classifier.fit_predict_multivariate(df_pit, feature_cols)
+        # 2. Fit Dynamic Regime Classifier across features
+        classifier = DynamicRegimeClassifier(n_states_per_feature=self.n_states_per_feature)
+        df_states = classifier.build_composite_state(df_pit, feature_cols)
 
         # 3. Compute empirical state transition matrix
-        states_seq = df_states["regime_state_id"].values
-        trans_matrix = self.compute_transition_matrix(states_seq, self.n_components)
+        states_seq = df_states["composite_state_id"].values
+        total_possible_states = 2 ** len(feature_cols)
+        trans_matrix = self.compute_transition_matrix(states_seq, total_possible_states)
 
         return df_states, trans_matrix

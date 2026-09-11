@@ -16,20 +16,22 @@ def mock_features():
         "expiry_pressure_ratio": np.random.normal(1.2, 0.3, 20)
     })
 
-def test_dynamic_regime_classifier_multivariate(mock_features):
-    classifier = DynamicRegimeClassifier(n_components=3, model_type="hmm")
-    df_result, aic, bic = classifier.fit_predict_multivariate(mock_features, ["rpi_raw", "iv_30d", "expiry_pressure_ratio"])
+def test_dynamic_regime_classifier(mock_features):
+    classifier = DynamicRegimeClassifier(n_states_per_feature=2, model_type="hmm")
+    df_result = classifier.build_composite_state(mock_features, ["rpi_raw", "iv_30d", "expiry_pressure_ratio"])
 
-    assert "regime_state_id" in df_result.columns
+    assert "rpi_raw_regime" in df_result.columns
+    assert "iv_30d_regime" in df_result.columns
+    assert "expiry_pressure_ratio_regime" in df_result.columns
     assert "composite_state_id" in df_result.columns
-    assert set(df_result["regime_state_id"].unique()).issubset(set(range(3)))
+    assert set(df_result["composite_state_id"].unique()).issubset(set(range(8)))
 
 def test_point_in_time_state_machine(mock_features):
-    sm = PointInTimeStateMachine(min_periods=5, n_components=3)
+    sm = PointInTimeStateMachine(min_periods=5, n_states_per_feature=2)
     df_states, trans_matrix = sm.process_state_classification(mock_features, ["rpi_raw", "iv_30d"])
 
     assert not df_states.empty
-    assert trans_matrix.shape == (3, 3)
+    assert trans_matrix.shape == (4, 4)  # 2^2 = 4 states
     row_sums = trans_matrix.sum(axis=1)
     for r in row_sums:
         assert np.isclose(r, 1.0) or np.isclose(r, 0.0)
