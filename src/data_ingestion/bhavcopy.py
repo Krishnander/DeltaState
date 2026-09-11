@@ -2,7 +2,7 @@ import os
 import logging
 import pandas as pd
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional
 from nselib import derivatives, capital_market
 from src.data_ingestion.base import BaseFetcher
 
@@ -15,20 +15,6 @@ class BhavcopyFetcher(BaseFetcher):
     """
 
     SUBFOLDER = "bhavcopy"
-
-    def _filter_symbol(self, df: pd.DataFrame, target_symbol: Optional[str]) -> pd.DataFrame:
-        if df is None or df.empty or not target_symbol:
-            return df
-
-        sym_col = None
-        for col in ["SYMBOL", "TckrSymb", "symbol"]:
-            if col in df.columns:
-                sym_col = col
-                break
-
-        if sym_col:
-            return df[df[sym_col] == target_symbol].copy()
-        return df
 
     def fetch_fno_bhavcopy(self, trade_date: str, target_symbol: Optional[str] = "NIFTY") -> Optional[pd.DataFrame]:
         """
@@ -50,7 +36,9 @@ class BhavcopyFetcher(BaseFetcher):
         if self.is_cached(cache_path):
             logger.info(f"Cache hit for F&O Bhavcopy on {formatted_date}: {cache_path}")
             df = pd.read_parquet(cache_path)
-            return self._filter_symbol(df, target_symbol)
+            if target_symbol and "SYMBOL" in df.columns:
+                df = df[df["SYMBOL"] == target_symbol].copy()
+            return df
 
         logger.info(f"Fetching F&O Bhavcopy from NSE for date: {formatted_date}")
         try:
@@ -58,7 +46,9 @@ class BhavcopyFetcher(BaseFetcher):
             if df is not None and not df.empty:
                 df["trade_date"] = dt.strftime("%Y-%m-%d")
                 self.save_parquet_idempotent(df, cache_path)
-                return self._filter_symbol(df, target_symbol)
+                if target_symbol and "SYMBOL" in df.columns:
+                    df = df[df["SYMBOL"] == target_symbol].copy()
+                return df
             else:
                 logger.warning(f"No F&O Bhavcopy data returned for {formatted_date} (likely market holiday).")
                 return None
@@ -86,7 +76,9 @@ class BhavcopyFetcher(BaseFetcher):
         if self.is_cached(cache_path):
             logger.info(f"Cache hit for Equity Bhavcopy on {formatted_date}: {cache_path}")
             df = pd.read_parquet(cache_path)
-            return self._filter_symbol(df, target_symbol)
+            if target_symbol and "SYMBOL" in df.columns:
+                df = df[df["SYMBOL"] == target_symbol].copy()
+            return df
 
         logger.info(f"Fetching Equity Cash Bhavcopy from NSE for date: {formatted_date}")
         try:
@@ -94,7 +86,9 @@ class BhavcopyFetcher(BaseFetcher):
             if df is not None and not df.empty:
                 df["trade_date"] = dt.strftime("%Y-%m-%d")
                 self.save_parquet_idempotent(df, cache_path)
-                return self._filter_symbol(df, target_symbol)
+                if target_symbol and "SYMBOL" in df.columns:
+                    df = df[df["SYMBOL"] == target_symbol].copy()
+                return df
             else:
                 logger.warning(f"No Equity Bhavcopy data returned for {formatted_date} (likely market holiday).")
                 return None

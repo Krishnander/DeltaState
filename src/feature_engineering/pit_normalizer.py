@@ -39,14 +39,15 @@ class PITExpandingNormalizer:
             # Expanding window percentiles (PIT)
             pit_percentiles = []
             for i in range(len(series)):
-                current_val = series.iloc[i]
-                if pd.isna(current_val) or i < self.min_periods - 1:
+                if i < self.min_periods - 1:
                     pit_percentiles.append(np.nan)
                 else:
                     hist_window = series.iloc[:i+1].dropna()
                     if len(hist_window) == 0:
                         pit_percentiles.append(np.nan)
                     else:
+                        current_val = series.iloc[i]
+                        # Compute empirical quantile rank up to index i
                         pct = (hist_window < current_val).mean()
                         pit_percentiles.append(pct)
 

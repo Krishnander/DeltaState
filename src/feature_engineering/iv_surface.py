@@ -8,22 +8,15 @@ logger = logging.getLogger("feature_engineering.iv_surface")
 
 class ConstantMaturityIVSurface:
     """
-    Constructs Constant Maturity ATM Implied Volatility Surface using cubic spline / linear interpolation
-    at fixed tenors (7D, 30D, 60D). SVI total variance fitting structure parameterizes smile across strikes.
+    Constructs ATM Implied Volatility Surface and interpolates constant-maturity IVs
+    at fixed tenors (7D, 30D, 60D).
     """
 
     TARGET_TENORS_DAYS = [7, 30, 60]
 
-    def _svi_vol_formula(self, k: float, a: float, b: float, rho: float, m: float, sigma: float) -> float:
-        """
-        SVI (Stochastic Volatility Inspired) total variance formula:
-        w(k) = a + b * { rho * (k - m) + sqrt((k - m)^2 + sigma^2) }
-        """
-        return a + b * (rho * (k - m) + np.sqrt((k - m) ** 2 + sigma ** 2))
-
     def compute_atm_iv_surface(self, df_option_chain: pd.DataFrame) -> pd.DataFrame:
         """
-        Calculates constant maturity ATM IV from option chain or bhavcopy snapshots for a specific underlying.
+        Calculates constant maturity ATM IV from option chain or bhavcopy snapshots.
         """
         if df_option_chain is None or df_option_chain.empty:
             logger.warning("Empty option chain passed to IV surface calculation.")
@@ -47,33 +40,27 @@ class ConstantMaturityIVSurface:
         df = df.rename(columns={k: v for k, v in col_map.items() if k in df.columns})
         df = df.loc[:, ~df.columns.duplicated()].copy()
 
+        if "underlying_price" not in df.columns:
+            df["underlying_price"] = df["strike"].median() if "strike" in df.columns else 21500.0
+
         for c in ["strike", "close_price", "underlying_price"]:
             if c in df.columns:
                 df[c] = pd.to_numeric(df[c].astype(str).str.replace(",", "").str.strip(), errors="coerce")
 
         results = []
         for trade_date, group in df.groupby("trade_date"):
+            # Ensure trade_date is a scalar string
             td_str = str(trade_date.iloc[0]) if isinstance(trade_date, (pd.Series, pd.Index)) else str(trade_date)
-            group = group.copy()
             try:
                 dt_trade = pd.to_datetime(td_str)
             except Exception:
                 continue
-
-            # Determine underlying spot price from Futures or Underlying column
-            if "underlying_price" in group.columns and not group["underlying_price"].dropna().empty:
-                spot = group["underlying_price"].dropna().iloc[0]
-            elif "INSTRUMENT" in group.columns and "FUT" in str(group["INSTRUMENT"].iloc[0]):
-                spot = group["close_price"].iloc[0]
-            else:
-                spot = group["strike"].median() if "strike" in group.columns else 21500.0
 
             tenor_ivs = {}
             expiry_groups = []
 
             for exp_dt, exp_group in group.groupby("expiry_date"):
                 exp_dt_str = str(exp_dt.iloc[0]) if isinstance(exp_dt, (pd.Series, pd.Index)) else str(exp_dt)
-                exp_group = exp_group.copy()
                 try:
                     dt_exp = pd.to_datetime(exp_dt_str)
                     dte = (dt_exp - dt_trade).days
@@ -83,13 +70,13 @@ class ConstantMaturityIVSurface:
                 if dte <= 0:
                     continue
 
+                spot = exp_group["underlying_price"].iloc[0]
                 exp_group["atm_dist"] = (exp_group["strike"] - spot).abs()
                 atm_row = exp_group.sort_values("atm_dist").iloc[0]
 
                 atm_price = atm_row["close_price"]
                 if spot > 0 and dte > 0 and atm_price > 0:
                     t_years = dte / 365.0
-                    # Black-Scholes ATM IV approximation
                     atm_iv_proxy = (np.sqrt(2 * np.pi) / np.sqrt(t_years)) * (atm_price / spot)
                     expiry_groups.append((dte, atm_iv_proxy))
 
