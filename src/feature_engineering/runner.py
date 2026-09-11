@@ -19,7 +19,6 @@ def main():
 
     raw_dir = config["data_ingestion"]["raw_dir"]
     processed_dir = config["data_ingestion"]["processed_dir"]
-    target_symbol = config["universe"]["target"]
     os.makedirs(processed_dir, exist_ok=True)
 
     logger.info("Starting Feature Engineering pipeline execution...")
@@ -38,7 +37,9 @@ def main():
     def clean_df(df):
         if df is None or df.empty:
             return pd.DataFrame()
+        # Drop duplicate columns
         df = df.loc[:, ~df.columns.duplicated()].copy()
+        # Ensure single string column for trade_date if present
         if "trade_date" in df.columns:
             if isinstance(df["trade_date"], pd.DataFrame):
                 df["trade_date"] = df["trade_date"].iloc[:, 0]
@@ -50,25 +51,15 @@ def main():
     df_equity_bhavcopy = clean_df(df_equity_bhavcopy)
     df_sentiment = clean_df(df_sentiment)
 
-    # Filter F&O Bhavcopy for target symbol (e.g. NIFTY) to prevent cross-symbol IV/Expiry contamination
-    if not df_fno_bhavcopy.empty:
-        sym_col = "SYMBOL" if "SYMBOL" in df_fno_bhavcopy.columns else "symbol" if "symbol" in df_fno_bhavcopy.columns else None
-        if sym_col:
-            df_target_fno = df_fno_bhavcopy[df_fno_bhavcopy[sym_col] == target_symbol].copy()
-        else:
-            df_target_fno = df_fno_bhavcopy
-    else:
-        df_target_fno = pd.DataFrame()
-
     # 2. Compute Signals
     rpi_calculator = RetailPositioningIndex()
     df_rpi = rpi_calculator.compute(df_participant_oi)
 
     iv_calculator = ConstantMaturityIVSurface()
-    df_iv = iv_calculator.compute_atm_iv_surface(df_target_fno)
+    df_iv = iv_calculator.compute_atm_iv_surface(df_fno_bhavcopy)
 
     expiry_calculator = ExpiryPressureMetrics()
-    df_expiry = expiry_calculator.compute(df_target_fno, df_equity_bhavcopy)
+    df_expiry = expiry_calculator.compute(df_fno_bhavcopy, df_equity_bhavcopy)
 
     sentiment_calculator = SentimentFeatureExtractor()
     df_sent = sentiment_calculator.compute_sentiment_features(df_sentiment)
@@ -78,7 +69,7 @@ def main():
     if not df_sent.empty:
         df_features = df_features.merge(df_sent, on="trade_date", how="outer")
     if not df_expiry.empty and "symbol" in df_expiry.columns:
-        df_nifty_expiry = df_expiry[df_expiry["symbol"] == target_symbol].copy()
+        df_nifty_expiry = df_expiry[df_expiry["symbol"] == config["universe"]["target"]].copy()
         if not df_nifty_expiry.empty:
             df_features = df_features.merge(df_nifty_expiry[["trade_date", "expiry_pressure_ratio"]], on="trade_date", how="outer")
 

@@ -7,8 +7,8 @@ logger = logging.getLogger("feature_engineering.sentiment")
 
 class SentimentFeatureExtractor:
     """
-    Extracts sentiment features using HuggingFace FinBERT or keyword polarity scoring
-    on Indian financial headlines and social content.
+    Extracts numerical sentiment polarity and momentum features from financial headlines/social posts.
+    Calculates net bullishness ratio: (Bullish - Bearish) / Total
     """
 
     LABEL_MAP = {
@@ -24,7 +24,8 @@ class SentimentFeatureExtractor:
 
     def compute_sentiment_features(self, df_sentiment: pd.DataFrame) -> pd.DataFrame:
         """
-        Processes sentiment records and calculates mean polarity score and bullish ratio.
+        Processes sentiment records and groups by trade date.
+        Expected columns: 'timestamp' / 'trade_date', 'label' / 'sentiment_score'
         """
         if df_sentiment is None or df_sentiment.empty:
             logger.warning("Empty sentiment dataframe passed to SentimentFeatureExtractor.")
@@ -36,7 +37,7 @@ class SentimentFeatureExtractor:
             if "timestamp" in df.columns:
                 df["trade_date"] = pd.to_datetime(df["timestamp"], errors="coerce").dt.strftime("%Y-%m-%d")
             else:
-                df["trade_date"] = "2024-01-15"
+                df["trade_date"] = "2024-01-15"  # default fallback
 
         if "numeric_score" not in df.columns:
             if "label" in df.columns:
@@ -58,7 +59,7 @@ class SentimentFeatureExtractor:
             bullish_ratio = (bullish_count - bearish_count) / total_count
 
             results.append({
-                "trade_date": str(trade_date),
+                "trade_date": trade_date,
                 "sentiment_score_mean": score_mean,
                 "bullish_ratio": bullish_ratio,
                 "sentiment_signal": 0.5 * score_mean + 0.5 * bullish_ratio

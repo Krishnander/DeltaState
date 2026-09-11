@@ -9,12 +9,12 @@ class RetailPositioningIndex:
     """
     Computes Retail Positioning Index (RPI) from Participant-wise Open Interest (OI) data.
     RPI = (Client Net Future Index OI) / (Total Future Index Market OI)
-    Excludes the 'TOTAL' row to avoid double-counting aggregate open interest.
     """
 
     def compute(self, df_participant_oi: pd.DataFrame) -> pd.DataFrame:
         """
         Computes RPI signal for a dataframe of participant OI records.
+        Expected columns: 'Client Type', 'Future Index Long', 'Future Index Short', 'trade_date'
         """
         if df_participant_oi is None or df_participant_oi.empty:
             logger.warning("Empty participant OI dataframe passed to RPI compute.")
@@ -34,19 +34,11 @@ class RetailPositioningIndex:
 
         results = []
         for trade_date, group in df.groupby("trade_date"):
-            td_str = str(trade_date.iloc[0]) if isinstance(trade_date, (pd.Series, pd.Index)) else str(trade_date)
+            client_row = group[group["Client Type"].astype(str).str.lower().str.contains("client")]
 
-            # Filter out summary 'TOTAL' / 'Total' rows to prevent double-counting
-            participants_only = group[~group["Client Type"].astype(str).str.lower().str.contains("total")]
-
-            if participants_only.empty:
-                participants_only = group
-
-            client_row = participants_only[participants_only["Client Type"].astype(str).str.lower().str.contains("client")]
-
-            # Total market OI across actual participant categories (Client, FII, DII, Pro)
-            total_long = participants_only["Future Index Long"].sum()
-            total_short = participants_only["Future Index Short"].sum()
+            # Total market OI across all participants
+            total_long = group["Future Index Long"].sum()
+            total_short = group["Future Index Short"].sum()
             total_market_oi = max(total_long, total_short, 1.0)
 
             if not client_row.empty:
@@ -59,7 +51,7 @@ class RetailPositioningIndex:
             rpi_raw = client_net_oi / total_market_oi
 
             results.append({
-                "trade_date": td_str,
+                "trade_date": trade_date,
                 "client_net_fut_oi": client_net_oi,
                 "total_market_fut_oi": total_market_oi,
                 "rpi_raw": rpi_raw
